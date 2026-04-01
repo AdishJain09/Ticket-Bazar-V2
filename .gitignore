@@ -1,0 +1,23 @@
+# Secrets
+.env
+
+# Node
+node_modules/
+
+# Python
+venv/
+
+# Build
+dist/
+build/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
