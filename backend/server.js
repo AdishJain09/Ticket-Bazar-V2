@@ -38,10 +38,17 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const httpServer = createServer(app);
 
+// Define dynamically allowed CORS origins
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://ticket-bazar.vercel.app',
+  process.env.CLIENT_URL
+].filter(Boolean);
+
 // Initialize Socket.io
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: allowedOrigins,
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -67,7 +74,7 @@ configureCloudinary();
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: allowedOrigins,
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
