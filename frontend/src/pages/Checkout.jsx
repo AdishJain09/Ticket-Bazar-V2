@@ -29,25 +29,80 @@ const Checkout = () => {
     }
   };
 
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      if (window.Razorpay) {
+        return resolve(true);
+      }
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  };
+
   const handlePayment = async () => {
     setIsProcessing(true);
     try {
-      // Simulate payment processing
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // In a real app, you would integrate Razorpay here
-      await ordersAPI.verifyPayment({
-        razorpayOrderId: order.payment?.razorpayOrderId,
-        razorpayPaymentId: `pay_${Date.now()}`,
-        razorpaySignature: 'demo_signature',
-      });
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) {
+        toast.error('Razorpay SDK failed to load');
+        setIsProcessing(false);
+        return;
+      }
 
-      toast.success('Payment successful!');
-      navigate('/dashboard/orders');
+      if (!order.payment?.razorpayOrderId || order.payment.razorpayOrderId.startsWith('mock_')) {
+        toast.error('Warning: Server returned a mock order ID. Payment might fail.');
+      }
+
+      const options = {
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+        amount: order.amount * 100, // Amount in paise
+        currency: "INR",
+        name: "Ticket Bazar",
+        description: `Ticket Purchase: ${order.ticket?.title || 'Event'}`,
+        order_id: order.payment.razorpayOrderId, 
+        handler: async function (response) {
+          try {
+            await ordersAPI.verifyPayment({
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+            });
+            toast.success('Payment successful!');
+            navigate('/dashboard/orders');
+          } catch (err) {
+            console.error('Payment verification failed:', err);
+            toast.error(err.response?.data?.message || 'Payment verification failed.');
+          } finally {
+            setIsProcessing(false);
+          }
+        },
+        modal: {
+          ondismiss: function() {
+            setIsProcessing(false);
+          }
+        },
+        prefill: {
+          name: order.buyer?.name || "Customer",
+          email: order.buyer?.email || "customer@example.com",
+          contact: order.buyer?.phone || "9999999999"
+        },
+        theme: {
+          color: "#6366f1"
+        }
+      };
+      
+      const rzp1 = new window.Razorpay(options);
+      rzp1.on('payment.failed', function (response){
+        toast.error('Payment failed: ' + response.error.description);
+        setIsProcessing(false);
+      });
+      rzp1.open();
     } catch (error) {
-      console.error('Payment failed:', error);
-      toast.error(error.response?.data?.message || 'Payment failed. Please try again.');
-    } finally {
+      console.error('Payment initiation failed:', error);
+      toast.error(error.message || 'Payment initiation failed. Please try again.');
       setIsProcessing(false);
     }
   };

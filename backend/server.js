@@ -12,6 +12,7 @@ dotenv.config();
 // Database and Config
 import { connectDB } from './config/database.js';
 import { configureCloudinary } from './config/cloudinary.js';
+import { seedDatabase } from './seed.js';
 
 // Middleware
 import { errorHandler, notFound } from './middleware/errorHandler.js';
@@ -49,8 +50,17 @@ const io = new Server(httpServer, {
 // Make io accessible to routes
 app.set('io', io);
 
-// Connect to Database
-connectDB();
+// Connect to Database and handle auto-seeding
+connectDB().then(async () => {
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('Checking database state for initial demo initialization...');
+    try {
+      await seedDatabase(false);
+    } catch (err) {
+      console.error('Database auto-seeding encountered an error:', err);
+    }
+  }
+});
 
 // Configure Cloudinary
 configureCloudinary();

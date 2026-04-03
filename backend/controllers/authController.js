@@ -2,6 +2,9 @@ import { User } from '../models/index.js';
 import { generateToken } from '../middleware/auth.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validationResult, body } from 'express-validator';
+import { OAuth2Client } from 'google-auth-library';
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 /**
  * Validation rules for signup
@@ -124,6 +127,71 @@ export const login = asyncHandler(async (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Login successful',
+    data: {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        phone: user.phone,
+        rating: user.rating,
+        totalSales: user.totalSales,
+        totalPurchases: user.totalPurchases,
+      },
+      token,
+    },
+  });
+});
+
+/**
+ * @desc    Google Authentication
+ * @route   POST /api/auth/google
+ * @access  Public
+ */
+export const googleAuth = asyncHandler(async (req, res) => {
+  const { credential } = req.body;
+  
+  if (!credential) {
+    throw new AppError('Google authentication credential is required', 400);
+  }
+
+  // Verify the ID token passed by frontend GoogleLogin
+  const ticket = await client.verifyIdToken({
+    idToken: credential,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+  
+  const payload = ticket.getPayload();
+  const { sub, email, name, picture } = payload;
+  
+  // Find user by email
+  let user = await User.findOne({ email });
+
+  if (user) {
+    // If they exist but don't have a googleId, link it
+    if (!user.googleId) {
+      user.googleId = sub;
+      if (!user.avatar && picture) user.avatar = picture;
+      await user.save();
+    }
+  } else {
+    // Completely new user signing up via Google
+    user = await User.create({
+      name,
+      email,
+      googleId: sub,
+      avatar: picture,
+      role: 'user', // default role
+    });
+  }
+
+  // Issue standard system app token
+  const token = generateToken(user._id);
+
+  res.status(200).json({
+    success: true,
+    message: 'Google login successful',
     data: {
       user: {
         id: user._id,
@@ -286,6 +354,7 @@ export const logout = asyncHandler(async (req, res) => {
 export default {
   signup,
   login,
+  googleAuth,
   getMe,
   updateProfile,
   updatePassword,

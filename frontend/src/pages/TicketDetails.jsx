@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Calendar, MapPin, User, Tag, ArrowLeft, MessageCircle, ShoppingCart, Lock, Minus, Plus, Ticket } from 'lucide-react';
+import { Calendar, MapPin, User, Tag, ArrowLeft, MessageCircle, ShoppingCart, Lock, Minus, Plus, Ticket, Star } from 'lucide-react';
 import { ticketsAPI, ordersAPI } from '../utils/api';
 import { formatDate, formatCurrency, calculateDiscount, getTicketTypeLabel } from '../utils/helpers';
 import useAuthStore from '../context/authStore';

@@ -2,6 +2,7 @@ import express from 'express';
 import {
   signup,
   login,
+  googleAuth,
   getMe,
   updateProfile,
   updatePassword,
@@ -27,6 +28,13 @@ router.post('/signup', signupValidation, signup);
  * @access  Public
  */
 router.post('/login', loginValidation, login);
+
+/**
+ * @route   POST /api/auth/google
+ * @desc    Login/Signup user via Google OAuth
+ * @access  Public
+ */
+router.post('/google', googleAuth);
 
 /**
  * @route   GET /api/auth/me

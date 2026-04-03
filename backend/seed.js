@@ -1,11 +1,14 @@
 import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import User from './models/User.js';
 import Ticket from './models/Ticket.js';
 import Order from './models/Order.js';
 
 dotenv.config();
+
+// Export the seed function
+export const seedDatabase = async (isManual = false) => {
+
 
 // Demo Users
 const demoUsers = [
@@ -323,24 +326,31 @@ const demoTickets = [
   },
 ];
 
-// Seed function
-const seedDatabase = async () => {
   try {
-    // Connect to MongoDB
-    console.log('Connecting to MongoDB...');
-    console.log('URI:', process.env.MONGODB_URI || 'mongodb://localhost:27017/ticketbazar');
-    
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ticketbazar', {
-      serverSelectionTimeoutMS: 5000,
-    });
-    console.log('Connected to MongoDB');
+    if (isManual) {
+      console.log('Connecting to MongoDB (Manual Seed)...');
+      await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ticketbazar', {
+        serverSelectionTimeoutMS: 5000,
+      });
+      console.log('Connected to MongoDB');
+    }
 
-    // Clear existing data
-    console.log('Clearing existing data...');
-    await User.deleteMany({});
-    await Ticket.deleteMany({});
-    await Order.deleteMany({});
-    console.log('Existing data cleared');
+    // Check if database is empty BEFORE touching anything
+    const userCount = await User.countDocuments();
+    if (userCount > 0) {
+      console.log('⚠️ Database already contains user data.');
+      if (isManual) {
+        console.log('Manual seeding skipped to prevent duplicate data.');
+        console.log('If you want to re-seed, drop the database manually.');
+      } else {
+        console.log('Auto-seeding skipped. Database not empty.');
+      }
+      return; // Abort seeding completely!
+    }
+
+    // Database is confirmed empty, proceed with demo initialization
+    console.log('Database is empty. Populating initial demo data...');
+
 
     // Create users
     console.log('Creating demo users...');
@@ -463,11 +473,15 @@ const seedDatabase = async () => {
   } catch (error) {
     console.error('Error seeding database:', error);
   } finally {
-    await mongoose.disconnect();
-    console.log('\nDisconnected from MongoDB');
-    process.exit(0);
+    if (isManual) {
+      await mongoose.disconnect();
+      console.log('\nDisconnected from MongoDB');
+    }
   }
 };
 
-// Run seed function
-seedDatabase();
+// Check if file is being run directly via node seed.js
+import { fileURLToPath } from 'url';
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  seedDatabase(true).then(() => process.exit(0)).catch(() => process.exit(1));
+}

@@ -60,6 +60,29 @@ const useAuthStore = create(
         }
       },
 
+      googleLogin: async (credential) => {
+        set({ isLoading: true, error: null });
+        try {
+          const response = await authAPI.googleLogin({ credential });
+          const { user, token } = response.data.data;
+          
+          localStorage.setItem('token', token);
+          set({
+            user,
+            token,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+          toast.success('Welcome via Google!');
+          return { success: true };
+        } catch (error) {
+          const message = error.response?.data?.message || 'Google login failed';
+          set({ isLoading: false, error: message });
+          toast.error(message);
+          return { success: false, error: message };
+        }
+      },
+
       logout: async () => {
         try {
           await authAPI.logout();

@@ -75,7 +75,7 @@ export const createOrder = asyncHandler(async (req, res) => {
   if (razorpay) {
     try {
       const razorpayOrder = await razorpay.orders.create({
-        amount: subtotal * 100, // Amount in paise
+        amount: Math.round(subtotal * 100), // Amount in paise strictly integer
         currency: 'INR',
         receipt: orderNumber,
         notes: {
@@ -87,7 +87,7 @@ export const createOrder = asyncHandler(async (req, res) => {
       });
       razorpayOrderId = razorpayOrder.id;
     } catch (error) {
-      console.warn('Razorpay order creation failed:', error.message);
+      console.error('Razorpay order creation failed:', error.statusCode, error.error || error.message);
     }
   }
 
