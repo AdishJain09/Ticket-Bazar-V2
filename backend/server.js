@@ -42,6 +42,21 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const httpServer = createServer(app);
 
+// ── Reverse Proxy Trust ─────────────────────────────────────────────
+// Render (and similar PaaS) terminates TLS at their load balancer and
+// forwards requests with X-Forwarded-For / X-Forwarded-Proto headers.
+// express-rate-limit v8+ throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR if
+// it sees these headers without trust proxy being enabled.
+// Setting "trust proxy" to 1 trusts the immediate upstream proxy only.
+// ────────────────────────────────────────────────────────────────────
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+  console.log('[BOOT] trust proxy set to 1 (production / Render)');
+} else {
+  // In dev behind no proxy — keep default behavior
+  app.set('trust proxy', false);
+}
+
 // Define dynamically allowed CORS origins
 const allowedOrigins = [
   'http://localhost:5173',
@@ -95,6 +110,8 @@ const globalLimiter = rateLimit({
   message: { success: false, message: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  // trust proxy is already configured above — skip ERL's own validation
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 app.use(globalLimiter);
 
@@ -104,12 +121,15 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Static files for uploads (if needed locally)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Health check route
+// Health check route (includes proxy debug info in production)
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Server is running',
     timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    trustProxy: app.get('trust proxy'),
+    clientIp: req.ip,
   });
 });
 
@@ -120,6 +140,7 @@ const authLimiter = rateLimit({
   message: { success: false, message: 'Too many login attempts, please try again after 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false, xForwardedForHeader: false },
 });
 
 // API Routes
@@ -157,13 +178,15 @@ startCronJobs();
 const PORT = process.env.PORT || 5000;
 
 httpServer.listen(PORT, () => {
+  const env = process.env.NODE_ENV || 'development';
   console.log(`
 ╔════════════════════════════════════════════════════════╗
 ║                                                        ║
 ║           🎫 Ticket Bazar Server Running               ║
 ║                                                        ║
-║   Server URL: http://localhost:${PORT}                  ║
-║   Environment: ${process.env.NODE_ENV || 'development'}${' '.repeat(16 - (process.env.NODE_ENV || 'development').length)}║
+║   Port:        ${PORT}                                   ║
+║   Environment: ${env}${' '.repeat(Math.max(0, 16 - env.length))}║
+║   Trust Proxy: ${app.get('trust proxy')}${' '.repeat(Math.max(0, 22 - String(app.get('trust proxy')).length))}║
 ║                                                        ║
 ╚════════════════════════════════════════════════════════╝
   `);
@@ -172,7 +195,9 @@ httpServer.listen(PORT, () => {
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
   console.error('UNHANDLED REJECTION! 💥 Shutting down...');
-  console.error(err.name, err.message);
+  console.error('Name:', err?.name);
+  console.error('Message:', err?.message);
+  console.error('Stack:', err?.stack);
   // Close server & exit process
   httpServer.close(() => {
     process.exit(1);
@@ -182,7 +207,9 @@ process.on('unhandledRejection', (err) => {
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
   console.error('UNCAUGHT EXCEPTION! 💥 Shutting down...');
-  console.error(err.name, err.message);
+  console.error('Name:', err?.name);
+  console.error('Message:', err?.message);
+  console.error('Stack:', err?.stack);
   process.exit(1);
 });
 
