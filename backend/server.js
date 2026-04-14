@@ -57,20 +57,37 @@ if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', false);
 }
 
-// Define dynamically allowed CORS origins
+// ── CORS Configuration ──────────────────────────────────────────────
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:3000',
   'https://ticket-bazar.vercel.app',
-  process.env.CLIENT_URL
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL
 ].filter(Boolean);
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, or Postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in our allowed list, or if it's a Vercel deployment preview url
+    if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Rejected origin: ${origin}`);
+      callback(null, false); // Return false instead of an error to cleanly omit the CORS headers
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+};
+// ────────────────────────────────────────────────────────────────────
 
 // Initialize Socket.io
 const io = new Server(httpServer, {
-  cors: {
-    origin: allowedOrigins,
-    methods: ['GET', 'POST'],
-    credentials: true,
-  },
+  cors: corsOptions,
 });
 
 // Make io accessible to routes
@@ -98,10 +115,7 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true,
-}));
+app.use(cors(corsOptions));
 
 // Global rate limiter: 200 requests per 15 minutes per IP
 const globalLimiter = rateLimit({
