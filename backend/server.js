@@ -14,6 +14,7 @@ dotenv.config();
 // Database and Config
 import { connectDB } from './config/database.js';
 import { configureCloudinary } from './config/cloudinary.js';
+import { verifyConnection } from './config/mail.js';
 import { seedDatabase } from './seed.js';
 import { startCronJobs } from './utils/cronJobs.js';
 
@@ -107,6 +108,9 @@ connectDB().then(async () => {
 
 // Configure Cloudinary
 configureCloudinary();
+
+// Verify Mail connection on boot
+verifyConnection();
 
 // Middleware
 // Security headers

@@ -91,9 +91,11 @@ export const signup = asyncHandler(async (req, res) => {
       message: 'Verification email sent. Please check your inbox.',
     });
   } catch (error) {
+    console.error('Nodemailer Error [Signup]:', error.message);
+    console.error(error);
     // If email fails, delete the user so they can try again
     await User.findByIdAndDelete(user._id);
-    throw new AppError('Verification email could not be sent. Please try again.', 500);
+    throw new AppError('Verification email could not be sent. Please try again later.', 500);
   }
 });
 
@@ -391,14 +393,16 @@ export const forgotPassword = asyncHandler(async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: 'Email sent',
+      data: 'Password reset link sent to your email',
     });
   } catch (error) {
+    console.error('Nodemailer Error [ForgotPassword]:', error.message);
+    console.error(error);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;
     await user.save({ validateBeforeSave: false });
 
-    throw new AppError('Email could not be sent', 500);
+    throw new AppError('Email could not be sent. Please verify the mail configuration.', 500);
   }
 });
 
@@ -475,7 +479,9 @@ export const resendVerification = asyncHandler(async (req, res) => {
       message: 'Verification email resent. Please check your inbox.',
     });
   } catch (error) {
-    throw new AppError('Email could not be sent', 500);
+    console.error('Nodemailer Error [ResendVerification]:', error.message);
+    console.error(error);
+    throw new AppError('Email could not be sent due to an internal server issue.', 500);
   }
 });
 
