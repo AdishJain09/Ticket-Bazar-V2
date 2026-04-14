@@ -55,16 +55,15 @@ const Signup = () => {
         <div className="w-full max-w-md mx-auto text-center">
           <div className="card p-10 space-y-6">
             <div className="inline-flex items-center justify-center w-20 h-20 bg-emerald-500/10 border border-emerald-500/20 rounded-full mb-4">
-              <Mail className="h-10 w-10 text-emerald-500" />
+              <User className="h-10 w-10 text-emerald-500" />
             </div>
-            <h1 className="text-3xl font-bold text-slate-100 italic">Check your email</h1>
+            <h1 className="text-3xl font-bold text-slate-100 italic">Account Created!</h1>
             <p className="text-slate-400 font-medium">
-              We've sent a verification link to <span className="text-white font-bold">{formData.email}</span>.
-              Please check your inbox and click the link to activate your account.
+              Your account has been successfully created. Direct access enabled.
             </p>
             <div className="pt-6">
               <Link to="/login" className="btn-primary inline-block w-full">
-                Return to Login
+                Proceed to Login
               </Link>
             </div>
           </div>

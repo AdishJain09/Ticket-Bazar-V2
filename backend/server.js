@@ -110,7 +110,7 @@ connectDB().then(async () => {
 configureCloudinary();
 
 // Verify Mail connection on boot
-verifyConnection();
+// verifyConnection();
 
 // Middleware
 // Security headers

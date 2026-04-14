@@ -80,9 +80,6 @@ const Login = () => {
               <label htmlFor="password" className="label text-slate-300 mb-0">
                 Password
               </label>
-              <Link to="/forgot-password" className="text-sm font-medium text-indigo-400 hover:text-indigo-300">
-                Forgot password?
-              </Link>
             </div>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
@@ -118,25 +115,6 @@ const Login = () => {
               'Sign In'
             )}
           </button>
-
-          {/* Resend Verification */}
-          {resendEmail && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              className="mt-4 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-center"
-            >
-              <p className="text-sm text-slate-400 mb-3">Your email is not verified yet.</p>
-              <button
-                type="button"
-                onClick={handleResend}
-                disabled={isResending}
-                className="text-indigo-400 hover:text-indigo-300 font-bold text-sm underline underline-offset-4"
-              >
-                {isResending ? 'Sending...' : 'Resend Verification Email'}
-              </button>
-            </motion.div>
-          )}
 
           {/* Google Auth Divider */}
           <div className="relative">

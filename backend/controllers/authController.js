@@ -76,19 +76,19 @@ export const signup = asyncHandler(async (req, res) => {
     password,
     role: role || 'user',
     phone: phone || '',
-    isVerified: false,
+    isVerified: true, // Temporarily disabled email verification
   });
 
   // Generate verification token
-  const verificationToken = user.getVerificationToken();
-  await user.save({ validateBeforeSave: false });
+  // const verificationToken = user.getVerificationToken();
+  // await user.save({ validateBeforeSave: false });
 
   try {
-    await sendVerificationEmail(user.email, verificationToken);
+    // await sendVerificationEmail(user.email, verificationToken);
 
     res.status(201).json({
       success: true,
-      message: 'Verification email sent. Please check your inbox.',
+      message: 'Account created successfully. Direct access enabled.',
     });
   } catch (error) {
     console.error('Nodemailer Error [Signup]:', error.message);
@@ -374,6 +374,12 @@ export const logout = asyncHandler(async (req, res) => {
  * @access  Public
  */
 export const forgotPassword = asyncHandler(async (req, res) => {
+  return res.status(200).json({
+    success: false,
+    message: 'Password reset temporarily unavailable. Feature coming soon.'
+  });
+  
+  /* Temporarily disabled
   const { email } = req.body;
   if (!email) {
     throw new AppError('Please provide an email', 400);
@@ -404,6 +410,7 @@ export const forgotPassword = asyncHandler(async (req, res) => {
 
     throw new AppError('Email could not be sent. Please verify the mail configuration.', 500);
   }
+  */
 });
 
 /**
