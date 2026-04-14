@@ -10,24 +10,58 @@ import {
   logout,
   signupValidation,
   loginValidation,
+  forgotPassword,
+  resetPassword,
+  verifyEmail,
+  resendVerification,
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
+import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
+
+// Rate limiter for auth routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 requests per windowMs
+  message: {
+    success: false,
+    message: 'Too many requests from this IP, please try again after 15 minutes',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * @route   POST /api/auth/forgot-password
+ * @desc    Forgot Password
+ * @access  Public
+ */
+router.post('/forgot-password', authLimiter, forgotPassword);
+router.put('/reset-password/:token', authLimiter, resetPassword);
+
+/**
+ * @route   POST /api/auth/verify-email/:token
+ * @desc    Verify email address
+ * @access  Public
+ */
+router.post('/verify-email/:token', authLimiter, verifyEmail);
+
+/**
+ * @route   POST /api/auth/resend-verification
+ * @desc    Resend verification email
+ * @access  Public
+ */
+router.post('/resend-verification', authLimiter, resendVerification);
+
 
 /**
  * @route   POST /api/auth/signup
  * @desc    Register a new user
  * @access  Public
  */
-router.post('/signup', signupValidation, signup);
-
-/**
- * @route   POST /api/auth/login
- * @desc    Login user
- * @access  Public
- */
-router.post('/login', loginValidation, login);
+router.post('/signup', authLimiter, signupValidation, signup);
+router.post('/login', authLimiter, loginValidation, login);
 
 /**
  * @route   POST /api/auth/google

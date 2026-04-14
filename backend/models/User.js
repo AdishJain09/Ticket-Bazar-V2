@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
+import crypto from 'crypto';
+
 /**
  * User Schema
  * Represents a user in the Ticket Bazar system
@@ -47,6 +49,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    phoneVisibility: {
+      type: String,
+      enum: ['public', 'buyers_only', 'private'],
+      default: 'private',
+    },
     role: {
       type: String,
       enum: ['user', 'seller', 'admin'],
@@ -77,6 +84,10 @@ const userSchema = new mongoose.Schema(
       zipCode: String,
       country: String,
     },
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
+    verificationToken: String,
+    verificationExpire: Date,
   },
   {
     timestamps: true, // Adds createdAt and updatedAt fields
@@ -119,6 +130,44 @@ userSchema.methods.updateRating = async function (newRating) {
   // For now, simple rating update
   this.rating = newRating;
   await this.save();
+};
+
+/**
+ * Generate and hash password token
+ */
+userSchema.methods.getResetPasswordToken = function () {
+  // Generate token
+  const resetToken = crypto.randomBytes(20).toString('hex');
+
+  // Hash token and set to resetPasswordToken field
+  this.resetPasswordToken = crypto
+    .createHash('sha256')
+    .update(resetToken)
+    .digest('hex');
+
+  // Set expire (10 minutes)
+  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
+
+  return resetToken;
+};
+
+/**
+ * Generate and hash email verification token
+ */
+userSchema.methods.getVerificationToken = function () {
+  // Generate token
+  const verificationToken = crypto.randomBytes(20).toString('hex');
+
+  // Hash token and set to verificationToken field
+  this.verificationToken = crypto
+    .createHash('sha256')
+    .update(verificationToken)
+    .digest('hex');
+
+  // Set expire (15 minutes) - as per requested task 15
+  this.verificationExpire = Date.now() + 15 * 60 * 1000;
+
+  return verificationToken;
 };
 
 const User = mongoose.model('User', userSchema);

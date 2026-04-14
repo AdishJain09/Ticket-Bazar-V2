@@ -2,6 +2,7 @@ import User from './User.js';
 import Ticket from './Ticket.js';
 import Order from './Order.js';
 import Conversation from './Chat.js';
+import Message from './Message.js';
 import Notification from './Notification.js';
 
 /**
@@ -13,6 +14,7 @@ export {
   Ticket,
   Order,
   Conversation,
+  Message,
   Notification,
 };
 
@@ -21,5 +23,6 @@ export default {
   Ticket,
   Order,
   Conversation,
+  Message,
   Notification,
 };

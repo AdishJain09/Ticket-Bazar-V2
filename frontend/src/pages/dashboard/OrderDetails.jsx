@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Calendar, MapPin, User, CreditCard, Shield, CheckCircle, Clock, Package, Ticket } from 'lucide-react';
-import { ordersAPI } from '../../utils/api';
+import { ArrowLeft, Calendar, MapPin, User, CreditCard, Shield, CheckCircle, Clock, Package, Ticket, Star } from 'lucide-react';
+import { ordersAPI, reviewsAPI } from '../../utils/api';
 import { formatDate, formatCurrency } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 
@@ -10,6 +10,12 @@ const OrderDetails = () => {
   const navigate = useNavigate();
   const [order, setOrder] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Review state
+  const [rating, setRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [isReviewSubmitting, setIsReviewSubmitting] = useState(false);
+  const [hasReviewed, setHasReviewed] = useState(false);
 
   useEffect(() => {
     fetchOrder();
@@ -25,6 +31,32 @@ const OrderDetails = () => {
       navigate('/dashboard/orders');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const submitReview = async (e) => {
+    e.preventDefault();
+    if (!rating) return toast.error('Please select a rating');
+    
+    setIsReviewSubmitting(true);
+    try {
+      await reviewsAPI.create({
+        ticketId: order.ticket._id,
+        sellerId: order.seller._id,
+        rating,
+        comment: reviewComment
+      });
+      toast.success('Review submitted successfully!');
+      setHasReviewed(true);
+    } catch (error) {
+      if (error.response?.data?.message === 'You have already reviewed this ticket purchase') {
+        setHasReviewed(true);
+        toast.error('You already reviewed this purchase.');
+      } else {
+        toast.error('Failed to submit review');
+      }
+    } finally {
+      setIsReviewSubmitting(false);
     }
   };
 
@@ -304,6 +336,58 @@ const OrderDetails = () => {
                 <CheckCircle className="h-5 w-5 mr-2" />
                 I Received the Ticket
               </button>
+            </div>
+          )}
+
+          {/* Leave a Review Section */}
+          {order.status === 'completed' && !hasReviewed && (
+            <div className="card p-6 border-indigo-500/30">
+              <div className="flex items-center gap-2 mb-4">
+                <Star className="h-5 w-5 text-amber-400" />
+                <h3 className="font-semibold text-slate-100">Rate the Seller</h3>
+              </div>
+              <form onSubmit={submitReview} className="space-y-4">
+                <div>
+                  <label className="text-sm text-slate-400 mb-2 block">Rating</label>
+                  <div className="flex gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        className="focus:outline-none"
+                        onClick={() => setRating(star)}
+                      >
+                        <Star className={`h-6 w-6 ${rating >= star ? 'text-amber-400 fill-amber-400' : 'text-slate-600'}`} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm text-slate-400 mb-2 block">Comment (Optional)</label>
+                  <textarea
+                    value={reviewComment}
+                    onChange={(e) => setReviewComment(e.target.value)}
+                    className="input w-full bg-slate-800 border-slate-700 text-slate-100"
+                    placeholder="How was your experience?"
+                    rows="3"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isReviewSubmitting}
+                  className="btn-primary w-full"
+                >
+                  {isReviewSubmitting ? 'Submitting...' : 'Submit Review'}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {order.status === 'completed' && hasReviewed && (
+            <div className="card p-6 bg-emerald-500/10 border-emerald-500/20 text-center">
+              <CheckCircle className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
+              <h3 className="font-medium text-emerald-400">Review Submitted</h3>
+              <p className="text-sm text-slate-400 mt-1">Thank you for your feedback!</p>
             </div>
           )}
         </div>

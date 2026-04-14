@@ -13,9 +13,12 @@ import AdminLayout from './components/layout/AdminLayout';
 import HomeNew from './pages/HomeNew';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import TicketDetails from './pages/TicketDetails';
 import BrowseTickets from './pages/BrowseTickets';
 import Checkout from './pages/Checkout';
+import VerifyEmail from './pages/VerifyEmail';
 
 // Dashboard Pages
 import Dashboard from './pages/dashboard/Dashboard';
@@ -36,6 +39,7 @@ import AdminOrders from './pages/admin/AdminOrders';
 
 // Components
 import ProtectedRoute from './components/ProtectedRoute';
+import PublicRoute from './components/PublicRoute';
 import AdminRoute from './components/AdminRoute';
 import SellerRoute from './components/SellerRoute';
 import LoadingScreen from './components/LoadingScreen';
@@ -43,7 +47,7 @@ import CustomCursor from './components/CustomCursor';
 import InteractiveBackground from './components/InteractiveBackground';
 
 function App() {
-  const { isAuthenticated, fetchUser } = useAuthStore();
+  const { isAuthenticated, fetchUser, isInitialized } = useAuthStore();
   const { connect, disconnect } = useSocketStore();
 
   useEffect(() => {
@@ -52,17 +56,22 @@ function App() {
   }, [fetchUser]);
 
   useEffect(() => {
+    // Wait for auth initialization before connecting socket
+    if (!isInitialized) return;
+
     // Connect socket when authenticated
     if (isAuthenticated) {
+      console.log('[App] Auth initialized & authenticated. Connecting socket...');
       connect();
     } else {
+      console.log('[App] Not authenticated. Ensuring socket is disconnected.');
       disconnect();
     }
 
     return () => {
       disconnect();
     };
-  }, [isAuthenticated, connect, disconnect]);
+  }, [isInitialized, isAuthenticated, connect, disconnect]);
 
   return (
     <>
@@ -76,10 +85,13 @@ function App() {
         <Route path="/tickets/:id" element={<TicketDetails />} />
       </Route>
 
-      {/* Auth Routes */}
-      <Route element={<AuthLayout />}>
+      {/* Auth Routes - Only for guests */}
+      <Route element={<PublicRoute />}>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password/:token" element={<ResetPassword />} />
+        <Route path="/verify-email/:token" element={<VerifyEmail />} />
       </Route>
 
       {/* Protected Routes */}

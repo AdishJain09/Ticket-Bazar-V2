@@ -5,18 +5,27 @@ import mongoose from 'mongoose';
  * Establishes connection using the MONGODB_URI from environment variables
  */
 export const connectDB = async () => {
-  try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      // These options are no longer needed in Mongoose 6+, but kept for clarity
-      // useNewUrlParser: true,
-      // useUnifiedTopology: true,
-    });
+  const connectWithRetry = async () => {
+    try {
+      const conn = await mongoose.connect(process.env.MONGODB_URI);
+      console.log(`MongoDB Connected: ${conn.connection.host}`);
+    } catch (error) {
+      console.error(`Error connecting to MongoDB: ${error.message}`);
+      console.log('Retrying connection in 5 seconds...');
+      setTimeout(connectWithRetry, 5000);
+    }
+  };
 
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
-  } catch (error) {
-    console.error(`Error connecting to MongoDB: ${error.message}`);
-    process.exit(1);
-  }
+  mongoose.connection.on('disconnected', () => {
+    console.warn('MongoDB disconnected! Attempting to reconnect...');
+    connectWithRetry();
+  });
+
+  mongoose.connection.on('error', (err) => {
+    console.error(`MongoDB connection error: ${err.message}`);
+  });
+
+  await connectWithRetry();
 };
 
 export default connectDB;

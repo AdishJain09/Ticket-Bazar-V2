@@ -21,6 +21,7 @@ import {
   Armchair,
   FileText,
   IndianRupee,
+  LocateFixed,
 } from 'lucide-react';
 import { ticketsAPI } from '../../utils/api';
 import { formatCurrency } from '../../utils/helpers';
@@ -66,6 +67,50 @@ const CreateTicket = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [slideDirection, setSlideDirection] = useState('right');
   const [seatNumbers, setSeatNumbers] = useState(['']);
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+
+  const fetchCurrentLocation = async () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser');
+      return;
+    }
+    setIsFetchingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+            { headers: { 'Accept-Language': 'en' } }
+          );
+          const data = await response.json();
+          const addr = data.address || {};
+          const locationName = [
+            addr.amenity || addr.building || addr.road || '',
+            addr.suburb || addr.neighbourhood || '',
+            addr.city || addr.town || addr.village || '',
+            addr.state || '',
+          ].filter(Boolean).join(', ');
+          updateField('venue', locationName || data.display_name || `${latitude}, ${longitude}`);
+          toast.success('Location detected!');
+        } catch (err) {
+          console.error(err);
+          toast.error('Could not fetch address from coordinates');
+        } finally {
+          setIsFetchingLocation(false);
+        }
+      },
+      (error) => {
+        setIsFetchingLocation(false);
+        if (error.code === error.PERMISSION_DENIED) {
+          toast.error('Location access denied. Please allow location in browser settings.');
+        } else {
+          toast.error('Could not get your location');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   const [formData, setFormData] = useState({
     // Step 1 - Event Details
@@ -173,6 +218,14 @@ const CreateTicket = () => {
           toast.error('Event date is required');
           return false;
         }
+        // check if in the past (only date part)
+        const selectedDate = new Date(formData.eventDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (selectedDate < today) {
+          toast.error('Event date must be in the future');
+          return false;
+        }
         return true;
       case 2:
         if (!formData.description.trim()) {
@@ -194,6 +247,10 @@ const CreateTicket = () => {
         }
         if (!formData.resalePrice || parseFloat(formData.resalePrice) <= 0) {
           toast.error('Selling price is required');
+          return false;
+        }
+        if (formData.images.length === 0) {
+          toast.error('At least one ticket proof image is required');
           return false;
         }
         return true;
@@ -385,12 +442,22 @@ const CreateTicket = () => {
             <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
             <input
               type="text"
-              className="sell-input pl-10"
+              className="sell-input pl-10 pr-28"
               placeholder="e.g. DY Patil Stadium, Mumbai"
               value={formData.venue}
               onChange={(e) => updateField('venue', e.target.value)}
             />
+            <button
+              type="button"
+              onClick={fetchCurrentLocation}
+              disabled={isFetchingLocation}
+              className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 text-indigo-400 rounded-xl text-xs font-semibold transition-all disabled:opacity-50"
+            >
+              <LocateFixed className={`w-3.5 h-3.5 ${isFetchingLocation ? 'animate-spin' : ''}`} />
+              {isFetchingLocation ? 'Detecting...' : 'Auto-Detect'}
+            </button>
           </div>
+          <p className="text-xs text-slate-500 mt-1">Click Auto-Detect or type venue manually</p>
         </div>
       </div>
     </div>

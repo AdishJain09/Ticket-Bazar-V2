@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { User, Mail, Phone, Lock, Camera, CheckCircle } from 'lucide-react';
+import { User, Mail, Phone, Lock, Camera, CheckCircle, Shield } from 'lucide-react';
 import useAuthStore from '../../context/authStore';
 import { formatDate } from '../../utils/helpers';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ const Profile = () => {
   const [profileData, setProfileData] = useState({
     name: user?.name || '',
     phone: user?.phone || '',
+    phoneVisibility: user?.phoneVisibility || 'private',
   });
 
   const [passwordData, setPasswordData] = useState({
@@ -104,10 +105,12 @@ const Profile = () => {
                 <span className="text-slate-400">Total Orders</span>
                 <span className="text-slate-100 font-medium">{user?.totalOrders || 0}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Total Sales</span>
-                <span className="text-slate-100 font-medium">{user?.totalSales || 0}</span>
-              </div>
+              {(user?.role === 'seller' || user?.role === 'admin') && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Total Sales</span>
+                  <span className="text-slate-100 font-medium">{user?.totalSales || 0}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-slate-400">Rating</span>
                 <span className="text-slate-100 font-medium">
@@ -191,6 +194,27 @@ const Profile = () => {
                       placeholder="Your phone number"
                     />
                   </div>
+                </div>
+
+                {/* Phone Privacy Controls */}
+                <div>
+                  <label className="label text-slate-300 flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-indigo-400" />
+                    Phone Visibility
+                  </label>
+                  <select
+                    name="phoneVisibility"
+                    value={profileData.phoneVisibility}
+                    onChange={handleProfileChange}
+                    className="input bg-slate-800 border-slate-700 text-slate-100"
+                  >
+                    <option value="private">Private — Only you can see</option>
+                    <option value="buyers_only">Buyers Only — Visible after purchase</option>
+                    <option value="public">Public — Visible on your seller profile</option>
+                  </select>
+                  <p className="text-slate-500 text-sm mt-1">
+                    Controls who can see your phone number on ticket listings
+                  </p>
                 </div>
 
                 <button

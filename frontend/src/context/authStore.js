@@ -8,9 +8,10 @@ const useAuthStore = create(
     (set, get) => ({
       // State
       user: null,
-      token: null,
-      isAuthenticated: false,
+      token: localStorage.getItem('token') || null,
+      isAuthenticated: !!localStorage.getItem('token'), // Derived initial state
       isLoading: false,
+      isInitialized: false, // Track if first auth check done
       error: null,
 
       // Actions
@@ -18,22 +19,16 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const response = await authAPI.signup(userData);
-          const { user, token } = response.data.data;
-          
-          localStorage.setItem('token', token);
-          set({
-            user,
-            token,
-            isAuthenticated: true,
-            isLoading: false,
-          });
-          toast.success('Account created successfully!');
-          return { success: true };
+          set({ isLoading: false });
+          // Note: Signup no longer sets user/token/isAuthenticated
+          // It now just returns success for the "Email Sent" UI
+          return { success: true, message: response.data.message };
         } catch (error) {
           const message = error.response?.data?.message || 'Signup failed';
+          const status = error.response?.status;
           set({ isLoading: false, error: message });
-          toast.error(message);
-          return { success: false, error: message };
+          // toast.error(message); // Let the component handle local error display if needed
+          return { success: false, error: message, status };
         }
       },
 
@@ -54,9 +49,10 @@ const useAuthStore = create(
           return { success: true };
         } catch (error) {
           const message = error.response?.data?.message || 'Login failed';
+          const status = error.response?.status;
           set({ isLoading: false, error: message });
           toast.error(message);
-          return { success: false, error: message };
+          return { success: false, error: message, status };
         }
       },
 
@@ -103,7 +99,10 @@ const useAuthStore = create(
 
       fetchUser: async () => {
         const token = localStorage.getItem('token');
-        if (!token) return;
+        if (!token) {
+          set({ isInitialized: true });
+          return;
+        }
 
         set({ isLoading: true });
         try {
@@ -113,6 +112,7 @@ const useAuthStore = create(
             user,
             isAuthenticated: true,
             isLoading: false,
+            isInitialized: true,
           });
         } catch (error) {
           localStorage.removeItem('token');
@@ -121,7 +121,12 @@ const useAuthStore = create(
             token: null,
             isAuthenticated: false,
             isLoading: false,
+            isInitialized: true,
           });
+          // Show toast if session expired (only once if not on login)
+          if (error.response?.status === 401 && !window.location.pathname.includes('/login')) {
+            toast.error('Session expired. Please login again.');
+          }
         }
       },
 
@@ -178,11 +183,45 @@ const useAuthStore = create(
         }
       },
 
+      resendVerification: async (email) => {
+        set({ isLoading: true });
+        try {
+          const response = await authAPI.resendVerification({ email });
+          set({ isLoading: false });
+          toast.success(response.data.message || 'Verification email resent!');
+          return { success: true };
+        } catch (error) {
+          const message = error.response?.data?.message || 'Failed to resend email';
+          set({ isLoading: false });
+          toast.error(message);
+          return { success: false, error: message };
+        }
+      },
+
+      verifyEmail: async (token) => {
+        set({ isLoading: true });
+        try {
+          const response = await authAPI.verifyEmail(token);
+          set({ isLoading: false });
+          toast.success(response.data.message || 'Email verified successfully!');
+          return { success: true };
+        } catch (error) {
+          const message = error.response?.data?.message || 'Verification failed';
+          set({ isLoading: false });
+          // error interceptor handles toast
+          return { success: false, error: message };
+        }
+      },
+
       clearError: () => set({ error: null }),
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({ user: state.user, token: state.token, isAuthenticated: state.isAuthenticated }),
+      partialize: (state) => ({ 
+        user: state.user, 
+        token: state.token
+        // isAuthenticated is NOT persisted now, it's checked on load
+      }),
     }
   )
 );

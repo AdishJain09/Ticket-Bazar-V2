@@ -1,5 +1,6 @@
 import { Ticket, User, Notification } from '../models/index.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { emitToAll, emitToUser } from '../socket/index.js';
 import cloudinary from '../config/cloudinary.js';
 import { body, validationResult } from 'express-validator';
 
@@ -13,7 +14,16 @@ export const createTicketValidation = [
   body('category').isIn(['travel', 'entertainment', 'sports', 'other']).withMessage('Invalid category'),
   body('originalPrice').isFloat({ min: 0 }).withMessage('Original price must be a positive number'),
   body('resalePrice').isFloat({ min: 0 }).withMessage('Resale price must be a positive number'),
-  body('eventDate').isISO8601().withMessage('Valid event date is required'),
+  body('eventDate').isISO8601().withMessage('Valid event date is required').custom(value => {
+    const eventDate = new Date(value);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (eventDate < today) {
+      throw new Error('Event date must be in the future');
+    }
+    return true;
+  }),
+  body('quantity').optional().isInt({ min: 1 }).withMessage('Quantity must be at least 1'),
 ];
 
 /**
@@ -50,6 +60,14 @@ export const createTicket = asyncHandler(async (req, res) => {
     transferable,
     refundable,
   } = req.body;
+
+  // Validate images
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'At least one ticket proof image is required',
+    });
+  }
 
   // Upload images to Cloudinary (with error guarding)
   const images = [];
@@ -386,6 +404,26 @@ export const verifyTicket = asyncHandler(async (req, res) => {
     type: status === 'approved' ? 'ticket_verified' : 'ticket_rejected',
     title: status === 'approved' ? 'Ticket Verified' : 'Ticket Rejected',
     message: `Your ticket "${ticket.title}" has been ${status}.${notes ? ` Note: ${notes}` : ''}`,
+    relatedTicket: ticket._id,
+  });
+
+  // Real-time broadcast for approved listings
+  if (status === 'approved') {
+    emitToAll('new_listing', {
+      id: ticket._id,
+      title: ticket.title,
+      type: ticket.type,
+      resalePrice: ticket.resalePrice,
+      venue: ticket.venue,
+      image: ticket.images?.[0]
+    });
+  }
+
+  // Real-time notification for the seller
+  emitToUser(ticket.seller.toString(), 'notification', {
+    type: status === 'approved' ? 'ticket_verified' : 'ticket_rejected',
+    title: status === 'approved' ? 'Ticket Verified' : 'Ticket Rejected',
+    message: `Your ticket "${ticket.title}" has been ${status}.`,
     relatedTicket: ticket._id,
   });
 

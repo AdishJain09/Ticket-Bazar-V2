@@ -1,118 +1,100 @@
 import jwt from 'jsonwebtoken';
-import { User, Conversation } from '../models/index.js';
+import { User, Conversation, Message } from '../models/index.js';
+import { maskSensitiveInfo } from '../utils/privacyFilter.js';
 
 /**
  * Socket.io connection handler
  * Manages real-time connections, authentication, and events
  */
 export const initializeSocket = (io) => {
-  // Store connected users (userId -> socketId mapping)
+  // Store connected users (userId -> Set of socketIds mapping)
+  // This allows multiple tabs/devices per user
   const connectedUsers = new Map();
 
-  io.on('connection', (socket) => {
-    console.log(`New client connected: ${socket.id}`);
+  // Middleware for Authentication
+  io.use(async (socket, next) => {
+    try {
+      let token = socket.handshake.auth.token || socket.handshake.query.token;
+      
+      if (!token) {
+        return next(new Error('SOCKET_AUTH_NO_TOKEN'));
+      }
 
-    /**
-     * Authenticate user
-     * Client emits 'authenticate' with token after connection
-     */
-    socket.on('authenticate', async (token) => {
+      // Handle Bearer prefix if present
+      const strippedToken = token.startsWith('Bearer ') ? token.split(' ')[1] : token;
+
       try {
-        if (!token) {
-          socket.emit('auth_error', { message: 'No token provided' });
-          return;
-        }
-
         // Verify token
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(strippedToken, process.env.JWT_SECRET);
+        console.log(`[Socket] Auth Success: User ${decoded.id} connected`);
+        
+        // Get user from database
         const user = await User.findById(decoded.id).select('-password');
-
+        
         if (!user) {
-          socket.emit('auth_error', { message: 'User not found' });
-          return;
+          console.error(`[Socket] Auth Failed: User ${decoded.id} not found in DB`);
+          return next(new Error('SOCKET_USER_NOT_FOUND'));
         }
 
-        // Store user info in socket
+        // Attach user to socket
         socket.userId = user._id.toString();
         socket.user = user;
-
-        // Add to connected users
-        connectedUsers.set(user._id.toString(), socket.id);
-
-        // Join user's personal room for private notifications
-        socket.join(`user:${user._id}`);
-
-        console.log(`User authenticated: ${user.name} (${user._id})`);
-        socket.emit('authenticated', {
-          success: true,
-          user: {
-            id: user._id,
-            name: user.name,
-            role: user.role,
-          },
-        });
-
-        // Notify friends/connections that user is online (optional)
-        socket.broadcast.emit('user_online', {
-          userId: user._id.toString(),
-          name: user.name,
-        });
-      } catch (error) {
-        console.error('Socket authentication error:', error.message);
-        socket.emit('auth_error', { message: 'Invalid token' });
+        next();
+      } catch (err) {
+        console.error(`[Socket] JWT Verification Failed: ${err.message}`);
+        return next(new Error('SOCKET_AUTH_INVALID_TOKEN'));
       }
-    });
+    } catch (err) {
+      console.error('Socket Auth Middleware Error:', err.message);
+      next(new Error('SOCKET_AUTH_INTERNAL_ERROR'));
+    }
+  });
+
+  io.on('connection', (socket) => {
+    const userId = socket.userId;
+    console.log(`User connected: ${socket.user.name} (${socket.id})`);
+
+    // Add to connected users map
+    if (!connectedUsers.has(userId)) {
+      connectedUsers.set(userId, new Set());
+    }
+    connectedUsers.get(userId).add(socket.id);
+
+    // Join user's personal room for direct events/notifications
+    socket.join(`user:${userId}`);
+
+    // Broadcast online status
+    socket.broadcast.emit('user_online', { userId });
 
     /**
      * Join conversation room
-     * Client emits 'join_conversation' when opening a chat
      */
     socket.on('join_conversation', async (conversationId) => {
       try {
-        if (!socket.userId) {
-          socket.emit('error', { message: 'Not authenticated' });
-          return;
-        }
-
-        // Verify user is part of this conversation
         const conversation = await Conversation.findById(conversationId);
-
-        if (!conversation) {
-          socket.emit('error', { message: 'Conversation not found' });
-          return;
+        if (!conversation || !conversation.participants.some(p => p.toString() === userId)) {
+          return socket.emit('error', { message: 'Conversation not found or access denied' });
         }
 
-        if (!conversation.participants.includes(socket.userId)) {
-          socket.emit('error', { message: 'Not authorized' });
-          return;
-        }
-
-        // Leave previous conversation rooms
-        socket.rooms.forEach((room) => {
-          if (room.startsWith('conversation:')) {
-            socket.leave(room);
-          }
-        });
-
-        // Join new conversation room
+        // Join the specific room
         const roomName = `conversation:${conversationId}`;
         socket.join(roomName);
         socket.currentConversation = conversationId;
 
-        console.log(`User ${socket.userId} joined conversation: ${conversationId}`);
-        socket.emit('joined_conversation', { conversationId });
-
-        // Mark messages as read
-        await conversation.markAsRead(socket.userId);
-
-        // Notify other participant
-        socket.to(roomName).emit('user_typing', {
-          userId: socket.userId,
-          isTyping: false,
+        console.log(`Socket ${socket.id} joined room: ${roomName}`);
+        
+        // Mark as read in DB via controller logic (or directly here if preferred)
+        await conversation.markAsRead(userId);
+        
+        // Notify others that user is reading
+        socket.to(roomName).emit('messages_read', {
+          conversationId,
+          readBy: userId,
         });
+
       } catch (error) {
-        console.error('Join conversation error:', error);
-        socket.emit('error', { message: 'Failed to join conversation' });
+        console.error('Join room error:', error);
+        socket.emit('error', { message: 'Failed to join chat room' });
       }
     });
 
@@ -123,155 +105,125 @@ export const initializeSocket = (io) => {
       const roomName = `conversation:${conversationId}`;
       socket.leave(roomName);
       socket.currentConversation = null;
-      console.log(`User ${socket.userId} left conversation: ${conversationId}`);
-      socket.emit('left_conversation', { conversationId });
     });
 
     /**
-     * Send message
-     * Client emits 'send_message' when user sends a message
-     */
-    socket.on('send_message', async (data) => {
-      try {
-        if (!socket.userId) {
-          socket.emit('error', { message: 'Not authenticated' });
-          return;
-        }
-
-        const { conversationId, content, messageType = 'text', fileUrl, fileName, replyTo } = data;
-
-        const conversation = await Conversation.findById(conversationId);
-
-        if (!conversation) {
-          socket.emit('error', { message: 'Conversation not found' });
-          return;
-        }
-
-        // Add message to conversation
-        const message = await conversation.addMessage({
-          sender: socket.userId,
-          senderName: socket.user.name,
-          content,
-          messageType,
-          fileUrl,
-          fileName,
-          replyTo,
-        });
-
-        // Broadcast message to all participants in the conversation
-        const roomName = `conversation:${conversationId}`;
-        io.to(roomName).emit('new_message', {
-          conversationId,
-          message,
-        });
-
-        // Send notification to offline participants
-        conversation.participants.forEach((participantId) => {
-          const participantSocketId = connectedUsers.get(participantId.toString());
-          const isInConversation = participantSocketId &&
-            io.sockets.sockets.get(participantSocketId)?.currentConversation === conversationId;
-
-          if (participantId.toString() !== socket.userId && !isInConversation) {
-            // Send notification
-            io.to(`user:${participantId}`).emit('notification', {
-              type: 'new_message',
-              title: `New message from ${socket.user.name}`,
-              message: content.substring(0, 100),
-              conversationId,
-            });
-          }
-        });
-
-        console.log(`Message sent in conversation ${conversationId}`);
-      } catch (error) {
-        console.error('Send message error:', error);
-        socket.emit('error', { message: 'Failed to send message' });
-      }
-    });
-
-    /**
-     * Typing indicator
+     * Typing indicators
      */
     socket.on('typing', (data) => {
-      if (!socket.userId || !socket.currentConversation) return;
-
-      const roomName = `conversation:${socket.currentConversation}`;
-      socket.to(roomName).emit('user_typing', {
-        userId: socket.userId,
-        name: socket.user?.name,
+      if (!socket.currentConversation) return;
+      socket.to(`conversation:${socket.currentConversation}`).emit('user_typing', {
+        userId,
+        name: socket.user.name,
         isTyping: data.isTyping,
       });
     });
 
     /**
-     * Mark messages as read
+     * Send Message (Alternative to REST API for high-speed chat)
      */
-    socket.on('mark_read', async (conversationId) => {
+    socket.on('send_message', async (data) => {
       try {
-        if (!socket.userId) return;
-
+        const { conversationId, content, messageType = 'text' } = data;
+        
         const conversation = await Conversation.findById(conversationId);
-        if (conversation) {
-          await conversation.markAsRead(socket.userId);
-
-          // Notify sender that messages were read
-          socket.to(`conversation:${conversationId}`).emit('messages_read', {
-            conversationId,
-            readBy: socket.userId,
-          });
+        if (!conversation || !conversation.participants.some(p => p.toString() === userId)) {
+          return socket.emit('error', { message: 'Conversation not found' });
         }
+
+        const filteredContent = maskSensitiveInfo(content);
+
+        // CREATE MESSAGE
+        const message = await Message.create({
+          conversationId,
+          sender: userId,
+          senderName: socket.user.name,
+          content: filteredContent,
+          messageType
+        });
+
+        // UPDATE CONVERSATION
+        conversation.lastMessage = {
+          content: filteredContent,
+          sender: userId,
+          sentAt: new Date()
+        };
+
+        // Increment unread for all other participants
+        conversation.participants.forEach(pId => {
+          if (pId.toString() !== userId) {
+            const count = conversation.unreadCount.get(pId.toString()) || 0;
+            conversation.unreadCount.set(pId.toString(), count + 1);
+          }
+        });
+        await conversation.save();
+
+        // BROADCAST
+        const roomName = `conversation:${conversationId}`;
+        io.to(roomName).emit('new_message', {
+          conversationId,
+          message
+        });
+
+        // NOTIFY OFFLINE/OUT-OF-ROOM USERS
+        conversation.participants.forEach(pId => {
+          const pIdStr = pId.toString();
+          if (pIdStr !== userId) {
+            // Check if user is in this specific room in ANY tab
+            // For simplicity, we can emit to their personal room
+            io.to(`user:${pIdStr}`).emit('notification', {
+              type: 'new_message',
+              title: `New message from ${socket.user.name}`,
+              message: filteredContent,
+              conversationId
+            });
+          }
+        });
+
       } catch (error) {
-        console.error('Mark read error:', error);
+        console.error('Socket send_message error:', error);
+        socket.emit('error', { message: 'Failed to send message' });
       }
     });
 
     /**
-     * Handle disconnection
+     * Handle Disconnection
      */
     socket.on('disconnect', () => {
-      console.log(`Client disconnected: ${socket.id}`);
-
-      if (socket.userId) {
-        // Remove from connected users
-        connectedUsers.delete(socket.userId);
-
-        // Notify others that user is offline
-        socket.broadcast.emit('user_offline', {
-          userId: socket.userId,
-        });
-
-        console.log(`User ${socket.userId} disconnected`);
+      console.log(`Socket disconnected: ${socket.id}`);
+      
+      if (connectedUsers.has(userId)) {
+        connectedUsers.get(userId).delete(socket.id);
+        if (connectedUsers.get(userId).size === 0) {
+          connectedUsers.delete(userId);
+          // Only broadcast offline if ALL tabs closed
+          socket.broadcast.emit('user_offline', { userId });
+        }
       }
     });
   });
 
-  // Make connected users available globally
+  // Global reference for helper functions
   global.connectedUsers = connectedUsers;
   global.io = io;
 
   return io;
 };
 
-/**
- * Helper function to emit event to specific user
- */
 export const emitToUser = (userId, event, data) => {
   if (global.io) {
     global.io.to(`user:${userId}`).emit(event, data);
   }
 };
 
-/**
- * Helper function to emit event to conversation
- */
-export const emitToConversation = (conversationId, event, data) => {
+export const emitToAll = (event, data) => {
   if (global.io) {
-    global.io.to(`conversation:${conversationId}`).emit(event, data);
+    global.io.emit(event, data);
   }
 };
 
 export default {
   initializeSocket,
   emitToUser,
-  emitToConversation,
+  emitToAll,
 };

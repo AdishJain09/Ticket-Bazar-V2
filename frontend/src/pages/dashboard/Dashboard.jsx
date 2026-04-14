@@ -13,10 +13,15 @@ const Dashboard = () => {
     sales: 0
   });
 
+  const [loading, setLoading] = useState(true);
   const isSeller = user?.role === 'seller' || user?.role === 'admin';
 
   useEffect(() => {
+    let isMounted = true;
+    
     const fetchStats = async () => {
+      if (!user) return;
+      setLoading(true);
       try {
         const [ordersRes, ticketsRes, chatRes] = await Promise.all([
           ordersAPI.getMyOrders(),
@@ -24,19 +29,24 @@ const Dashboard = () => {
           chatAPI.getUnreadCount()
         ]);
 
-        setStats({
-          orders: ordersRes.data.data.orders?.length || 0,
-          messages: chatRes.data.data.count || 0,
-          tickets: ticketsRes.data.data.tickets?.length || 0,
-          sales: isSeller ? ordersRes.data.data.orders?.filter(o => o.status === 'completed').length : 0
-        });
+        if (isMounted) {
+          setStats({
+            orders: ordersRes.data.data.orders?.length || 0,
+            messages: chatRes.data.data.unreadCount || 0,
+            tickets: ticketsRes.data.data.tickets?.length || 0,
+            sales: isSeller ? ordersRes.data.data.orders?.filter(o => o.status === 'completed').length : 0
+          });
+        }
       } catch (error) {
         console.error('Failed to fetch dashboard stats:', error);
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchStats();
-  }, [isSeller]);
+    return () => { isMounted = false; };
+  }, [user?._id, isSeller]);
 
   const statCards = [
     { name: 'My Orders', value: stats.orders.toString(), icon: ShoppingBag, href: '/dashboard/orders', color: 'bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/20' },

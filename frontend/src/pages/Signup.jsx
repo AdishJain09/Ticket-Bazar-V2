@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { User, Mail, Lock, Eye, EyeOff, Ticket, Phone } from 'lucide-react';
 import useAuthStore from '../context/authStore';
+import toast from 'react-hot-toast';
 
 const Signup = () => {
   const [formData, setFormData] = useState({
@@ -16,6 +17,7 @@ const Signup = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const { signup, isLoading } = useAuthStore();
   const navigate = useNavigate();
+  const [isSubmitted, setIsSubmitted] = useState(false);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -25,7 +27,7 @@ const Signup = () => {
     e.preventDefault();
     
     if (formData.password !== formData.confirmPassword) {
-      // toast.error('Passwords do not match');
+      toast.error('Passwords do not match');
       return;
     }
 
@@ -38,9 +40,37 @@ const Signup = () => {
     });
 
     if (result.success) {
-      navigate('/dashboard');
+      setIsSubmitted(true);
+      toast.success(result.message || 'Verification email sent!');
+    } else if (result.status === 409) {
+      toast.error('An account with this email already exists. Redirecting to login...');
+      setTimeout(() => navigate('/login'), 2000);
+    } else {
+      toast.error(result.message || 'Signup failed. Please try again.');
     }
   };
+
+    if (isSubmitted) {
+      return (
+        <div className="w-full max-w-md mx-auto text-center">
+          <div className="card p-10 space-y-6">
+            <div className="inline-flex items-center justify-center w-20 h-20 bg-emerald-500/10 border border-emerald-500/20 rounded-full mb-4">
+              <Mail className="h-10 w-10 text-emerald-500" />
+            </div>
+            <h1 className="text-3xl font-bold text-slate-100 italic">Check your email</h1>
+            <p className="text-slate-400 font-medium">
+              We've sent a verification link to <span className="text-white font-bold">{formData.email}</span>.
+              Please check your inbox and click the link to activate your account.
+            </p>
+            <div className="pt-6">
+              <Link to="/login" className="btn-primary inline-block w-full">
+                Return to Login
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
   return (
     <div className="w-full max-w-md mx-auto">

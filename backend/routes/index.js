@@ -4,6 +4,7 @@ import orderRoutes from './orders.js';
 import chatRoutes from './chat.js';
 import adminRoutes from './admin.js';
 import notificationRoutes from './notifications.js';
+import reviewRoutes from './reviews.js';
 
 /**
  * Export all route modules
@@ -16,6 +17,7 @@ export {
   chatRoutes,
   adminRoutes,
   notificationRoutes,
+  reviewRoutes,
 };
 
 export default {
@@ -25,4 +27,5 @@ export default {
   chatRoutes,
   adminRoutes,
   notificationRoutes,
+  reviewRoutes,
 };

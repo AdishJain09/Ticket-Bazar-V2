@@ -1,6 +1,8 @@
 import { Order, Ticket, User, Notification } from '../models/index.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
+import { emitToUser } from '../socket/index.js';
 import Razorpay from 'razorpay';
+import { sendOrderConfirmationEmail } from '../utils/sendEmail.js';
 
 // Initialize Razorpay (only if credentials are available)
 let razorpay = null;
@@ -128,6 +130,14 @@ export const createOrder = asyncHandler(async (req, res) => {
     actionUrl: `/dashboard/orders/${order._id}`,
   });
 
+  // Real-time notification for the seller
+  emitToUser(ticket.seller.toString(), 'notification', {
+    type: 'order_placed',
+    title: 'New Order Received',
+    message: `Someone wants to buy ${quantity}× "${ticket.title}".`,
+    relatedOrder: order._id,
+  });
+
   res.status(201).json({
     success: true,
     message: 'Order created successfully',
@@ -220,6 +230,34 @@ export const verifyPayment = asyncHandler(async (req, res) => {
     relatedOrder: order._id,
     actionUrl: `/dashboard/orders/${order._id}`,
   });
+
+  // Real-time notifications
+  emitToUser(order.buyer.toString(), 'notification', {
+    type: 'payment_received',
+    title: 'Payment Successful',
+    message: `Your payment for order #${order.orderNumber} was successful.`,
+    relatedOrder: order._id,
+  });
+
+  emitToUser(order.seller.toString(), 'notification', {
+    type: 'payment_received',
+    title: 'Payment Received',
+    message: `Payment received for order #${order.orderNumber}.`,
+    relatedOrder: order._id,
+  });
+
+  // Send Order Confirmation Email
+  try {
+    await sendOrderConfirmationEmail(req.user.email, {
+      orderNumber: order.orderNumber,
+      amount: order.amount,
+      quantity: order.quantity,
+      ticketTitle: ticket.title,
+      _id: order._id,
+    });
+  } catch (error) {
+    console.warn('Order confirmation email failed to send:', error.message);
+  }
 
   res.status(200).json({
     success: true,

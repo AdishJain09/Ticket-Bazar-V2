@@ -3,6 +3,12 @@ import { generateToken } from '../middleware/auth.js';
 import { asyncHandler, AppError } from '../middleware/errorHandler.js';
 import { validationResult, body } from 'express-validator';
 import { OAuth2Client } from 'google-auth-library';
+import {
+  sendVerificationEmail,
+  sendResetPasswordEmail,
+  sendWelcomeEmail
+} from '../utils/sendEmail.js';
+import crypto from 'crypto';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -60,36 +66,35 @@ export const signup = asyncHandler(async (req, res) => {
   // Check if user already exists
   const existingUser = await User.findOne({ email });
   if (existingUser) {
-    throw new AppError('User already exists with this email', 400);
+    throw new AppError('User already exists with this email', 409);
   }
 
-  // Create new user
+  // Create new user (unverified by default)
   const user = await User.create({
     name,
     email,
     password,
     role: role || 'user',
     phone: phone || '',
+    isVerified: false,
   });
 
-  // Generate token
-  const token = generateToken(user._id);
+  // Generate verification token
+  const verificationToken = user.getVerificationToken();
+  await user.save({ validateBeforeSave: false });
 
-  res.status(201).json({
-    success: true,
-    message: 'User registered successfully',
-    data: {
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        phone: user.phone,
-      },
-      token,
-    },
-  });
+  try {
+    await sendVerificationEmail(user.email, verificationToken);
+
+    res.status(201).json({
+      success: true,
+      message: 'Verification email sent. Please check your inbox.',
+    });
+  } catch (error) {
+    // If email fails, delete the user so they can try again
+    await User.findByIdAndDelete(user._id);
+    throw new AppError('Verification email could not be sent. Please try again.', 500);
+  }
 });
 
 /**
@@ -112,13 +117,18 @@ export const login = asyncHandler(async (req, res) => {
   // Check if user exists
   const user = await User.findOne({ email }).select('+password');
   if (!user) {
-    throw new AppError('Invalid email or password', 401);
+    throw new AppError('Incorrect password or email', 401);
+  }
+
+  // Check if password exists (in case of Google Sign-up)
+  if (!user.password) {
+    throw new AppError('This account was created with Google. Please use Google Sign-In.', 401);
   }
 
   // Check if password matches
   const isMatch = await user.comparePassword(password);
   if (!isMatch) {
-    throw new AppError('Invalid email or password', 401);
+    throw new AppError('Incorrect password or email', 401);
   }
 
   // Generate token
@@ -227,6 +237,7 @@ export const getMe = asyncHandler(async (req, res) => {
         role: user.role,
         avatar: user.avatar,
         phone: user.phone,
+        phoneVisibility: user.phoneVisibility,
         rating: user.rating,
         totalSales: user.totalSales,
         totalPurchases: user.totalPurchases,
@@ -243,12 +254,15 @@ export const getMe = asyncHandler(async (req, res) => {
  * @access  Private
  */
 export const updateProfile = asyncHandler(async (req, res) => {
-  const { name, phone, address } = req.body;
+  const { name, phone, address, phoneVisibility } = req.body;
 
   const updateData = {};
   if (name) updateData.name = name;
-  if (phone) updateData.phone = phone;
+  if (phone !== undefined) updateData.phone = phone;
   if (address) updateData.address = address;
+  if (phoneVisibility && ['public', 'buyers_only', 'private'].includes(phoneVisibility)) {
+    updateData.phoneVisibility = phoneVisibility;
+  }
 
   const user = await User.findByIdAndUpdate(
     req.user._id,
@@ -267,6 +281,7 @@ export const updateProfile = asyncHandler(async (req, res) => {
         role: user.role,
         avatar: user.avatar,
         phone: user.phone,
+        phoneVisibility: user.phoneVisibility,
         address: user.address,
       },
     },
@@ -351,6 +366,163 @@ export const logout = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * @desc    Forgot Password
+ * @route   POST /api/auth/forgot-password
+ * @access  Public
+ */
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    throw new AppError('Please provide an email', 400);
+  }
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    throw new AppError('There is no user with that email', 404);
+  }
+
+  // Get reset token
+  const resetToken = user.getResetPasswordToken();
+  await user.save({ validateBeforeSave: false });
+
+  try {
+    await sendResetPasswordEmail(user.email, resetToken);
+
+    res.status(200).json({
+      success: true,
+      data: 'Email sent',
+    });
+  } catch (error) {
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save({ validateBeforeSave: false });
+
+    throw new AppError('Email could not be sent', 500);
+  }
+});
+
+/**
+ * @desc    Verify Email
+ * @route   POST /api/auth/verify-email/:token
+ * @access  Public
+ */
+export const verifyEmail = asyncHandler(async (req, res) => {
+  // Get hashed token
+  const verificationToken = crypto
+    .createHash('sha256')
+    .update(req.params.token)
+    .digest('hex');
+
+  const user = await User.findOne({
+    verificationToken,
+    verificationExpire: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    throw new AppError('Invalid or expired verification token', 400);
+  }
+
+  user.isVerified = true;
+  user.verificationToken = undefined;
+  user.verificationExpire = undefined;
+  await user.save();
+
+  // Send welcome email
+  try {
+    await sendWelcomeEmail(user.email, user.name);
+  } catch (error) {
+    console.warn('Welcome email failed to send:', error.message);
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Email verified successfully! You can now login.',
+  });
+});
+
+/**
+ * @desc    Resend Verification Email
+ * @route   POST /api/auth/resend-verification
+ * @access  Public
+ */
+export const resendVerification = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    throw new AppError('Please provide an email', 400);
+  }
+
+  const user = await User.findOne({ email });
+
+  if (!user) {
+    throw new AppError('No user found with that email', 404);
+  }
+
+  if (user.isVerified) {
+    throw new AppError('This account is already verified', 400);
+  }
+
+  // Generate new token
+  const verificationToken = user.getVerificationToken();
+  await user.save({ validateBeforeSave: false });
+
+  try {
+    await sendVerificationEmail(user.email, verificationToken);
+
+    res.status(200).json({
+      success: true,
+      message: 'Verification email resent. Please check your inbox.',
+    });
+  } catch (error) {
+    throw new AppError('Email could not be sent', 500);
+  }
+});
+
+/**
+ * @desc    Reset Password
+ * @route   PUT /api/auth/reset-password/:token
+ * @access  Public
+ */
+export const resetPassword = asyncHandler(async (req, res) => {
+  // Get hashed token
+  const resetPasswordToken = crypto
+    .createHash('sha256')
+    .update(req.params.token)
+    .digest('hex');
+
+  const user = await User.findOne({
+    resetPasswordToken,
+    resetPasswordExpire: { $gt: Date.now() },
+  });
+
+  if (!user) {
+    throw new AppError('Invalid token or token has expired', 400);
+  }
+
+  // Set new password
+  user.password = req.body.password;
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpire = undefined;
+  await user.save();
+
+  // Return new token
+  const token = generateToken(user._id);
+
+  res.status(200).json({
+    success: true,
+    message: 'Password reset successful',
+    data: {
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      }
+    }
+  });
+});
+
 export default {
   signup,
   login,
@@ -360,6 +532,10 @@ export default {
   updatePassword,
   becomeSeller,
   logout,
+  forgotPassword,
+  resetPassword,
+  verifyEmail,
+  resendVerification,
   signupValidation,
   loginValidation,
 };

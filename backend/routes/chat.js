@@ -2,7 +2,7 @@ import express from 'express';
 import {
   getOrCreateConversation,
   getConversations,
-  getConversation,
+  getMessages,
   sendMessage,
   markAsRead,
   getUnreadCount,
@@ -30,11 +30,11 @@ router.get('/conversations', authenticate, getConversations);
 router.post('/conversations', authenticate, getOrCreateConversation);
 
 /**
- * @route   GET /api/chat/conversations/:id
- * @desc    Get single conversation with messages
+ * @route   GET /api/chat/conversations/:id/messages
+ * @desc    Get messages for a conversation
  * @access  Private
  */
-router.get('/conversations/:id', authenticate, getConversation);
+router.get('/conversations/:id/messages', authenticate, getMessages);
 
 /**
  * @route   POST /api/chat/conversations/:id/messages

@@ -21,14 +21,12 @@ const useSocketStore = create((set, get) => ({
     const socket = io(SOCKET_URL, {
       transports: ['websocket'],
       autoConnect: true,
+      auth: { token },
     });
 
     socket.on('connect', () => {
-      console.log('Socket connected');
-      set({ isConnected: true });
-      
-      // Authenticate socket
-      socket.emit('authenticate', token);
+      console.log('Socket connected & authenticated via handshake');
+      set({ isConnected: true, isAuthenticated: true });
     });
 
     socket.on('disconnect', () => {
@@ -36,16 +34,23 @@ const useSocketStore = create((set, get) => ({
       set({ isConnected: false, isAuthenticated: false });
     });
 
-    socket.on('authenticated', (data) => {
-      if (data.success) {
-        set({ isAuthenticated: true });
-        console.log('Socket authenticated');
-      }
-    });
+    socket.on('connect_error', (err) => {
+      console.error('[SocketStore] Connection error:', err.message);
+      set({ isConnected: false, isAuthenticated: false });
+      
+      const authErrorCodes = [
+        'SOCKET_AUTH_NO_TOKEN',
+        'SOCKET_AUTH_INVALID_TOKEN',
+        'SOCKET_USER_NOT_FOUND',
+        'Authentication error'
+      ];
 
-    socket.on('auth_error', (error) => {
-      console.error('Socket auth error:', error);
-      set({ isAuthenticated: false });
+      if (authErrorCodes.some(code => err.message.includes(code))) {
+        console.warn('[SocketStore] Auth failed, clearing socket state');
+        // If it was a real auth failure (not just net), maybe logout
+        // For now just stop connecting
+        socket.disconnect();
+      }
     });
 
     socket.on('new_message', (data) => {
@@ -72,8 +77,8 @@ const useSocketStore = create((set, get) => ({
     });
 
     socket.on('messages_read', (data) => {
-      // Handle messages read event
-      console.log('Messages read by:', data.readBy);
+      const { setMessagesRead } = useChatStore.getState();
+      setMessagesRead(data.conversationId, data.readBy);
     });
 
     socket.on('user_online', (data) => {
@@ -94,6 +99,14 @@ const useSocketStore = create((set, get) => ({
       toast(data.message, {
         icon: '🔔',
       });
+    });
+
+    socket.on('new_listing', (data) => {
+      toast.success(`New Ticket: ${data.title}!`, {
+        icon: '🎫',
+        duration: 5000,
+      });
+      // You could also add a callback here to refresh lists if needed
     });
 
     socket.on('error', (error) => {
@@ -119,24 +132,24 @@ const useSocketStore = create((set, get) => ({
   },
 
   joinConversation: (conversationId) => {
-    const { socket, isAuthenticated } = get();
-    if (socket && isAuthenticated && conversationId) {
+    const { socket, isConnected, isAuthenticated } = get();
+    if (socket && isConnected && isAuthenticated && conversationId) {
       socket.emit('join_conversation', conversationId);
       set({ currentConversation: conversationId });
     }
   },
 
   leaveConversation: (conversationId) => {
-    const { socket, isAuthenticated } = get();
-    if (socket && isAuthenticated && conversationId) {
+    const { socket, isConnected, isAuthenticated } = get();
+    if (socket && isConnected && isAuthenticated && conversationId) {
       socket.emit('leave_conversation', conversationId);
       set({ currentConversation: null });
     }
   },
 
   sendMessage: (conversationId, messageData) => {
-    const { socket, isAuthenticated } = get();
-    if (socket && isAuthenticated) {
+    const { socket, isConnected, isAuthenticated } = get();
+    if (socket && isConnected && isAuthenticated) {
       socket.emit('send_message', {
         conversationId,
         ...messageData,

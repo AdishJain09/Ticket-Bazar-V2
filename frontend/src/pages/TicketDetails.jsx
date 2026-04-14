@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Calendar, MapPin, User, Tag, ArrowLeft, MessageCircle, ShoppingCart, Lock, Minus, Plus, Ticket, Star } from 'lucide-react';
-import { ticketsAPI, ordersAPI } from '../utils/api';
+import { Calendar, MapPin, User, Tag, ArrowLeft, MessageCircle, ShoppingCart, Lock, Minus, Plus, Ticket, Star, X, Phone } from 'lucide-react';
+import { ticketsAPI, ordersAPI, reviewsAPI, chatAPI } from '../utils/api';
 import { formatDate, formatCurrency, calculateDiscount, getTicketTypeLabel } from '../utils/helpers';
 import useAuthStore from '../context/authStore';
 import toast from 'react-hot-toast';
@@ -15,6 +15,12 @@ const TicketDetails = () => {
   const [isBuying, setIsBuying] = useState(false);
   const [quantity, setQuantity] = useState(1);
 
+  const [isSellerModalOpen, setIsSellerModalOpen] = useState(false);
+  const [sellerReviews, setSellerReviews] = useState([]);
+  const [sellerStats, setSellerStats] = useState(null);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(false);
+  const [isStartingChat, setIsStartingChat] = useState(false);
+
   useEffect(() => {
     fetchTicket();
   }, [id]);
@@ -27,6 +33,26 @@ const TicketDetails = () => {
       console.error('Failed to fetch ticket:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchSellerReviews = async (sellerId) => {
+    setIsLoadingReviews(true);
+    try {
+      const response = await reviewsAPI.getSellerReviews(sellerId);
+      setSellerReviews(response.data.data);
+      setSellerStats(response.data.stats);
+    } catch(err) {
+      console.error(err);
+    } finally {
+      setIsLoadingReviews(false);
+    }
+  };
+
+  const openSellerModal = () => {
+    setIsSellerModalOpen(true);
+    if (ticket?.seller?._id) {
+       fetchSellerReviews(ticket.seller._id);
     }
   };
 
@@ -68,6 +94,40 @@ const TicketDetails = () => {
       toast.error(error.response?.data?.message || 'Failed to create order');
     } finally {
       setIsBuying(false);
+    }
+  };
+
+  const handleChatWithSeller = async () => {
+    if (!isAuthenticated || !user) {
+      toast.error('Please login to chat with seller');
+      navigate('/login');
+      return;
+    }
+
+    if (ticket.seller?._id === user._id) {
+      toast.error('You cannot chat with yourself');
+      return;
+    }
+
+    setIsStartingChat(true);
+    try {
+      const response = await chatAPI.createConversation({
+        participantId: ticket.seller?._id,
+        ticketId: ticket._id,
+        ticketInfo: {
+          title: ticket.title,
+          price: ticket.resalePrice,
+          image: ticket.images?.[0]?.url
+        }
+      });
+      
+      const { conversation } = response.data.data;
+      navigate(`/dashboard/messages/${conversation._id}`);
+    } catch (error) {
+      console.error('Failed to start conversation:', error);
+      toast.error('Failed to start chat session');
+    } finally {
+      setIsStartingChat(false);
     }
   };
 
@@ -231,9 +291,13 @@ const TicketDetails = () => {
                     Login to Buy
                   </Link>
                 )}
-                <button className="w-full py-4 bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl flex items-center justify-center font-bold hover:bg-slate-800 transition-all">
+                <button 
+                  className="w-full py-4 bg-slate-900 border border-slate-800 text-slate-300 rounded-2xl flex items-center justify-center font-bold hover:bg-slate-800 transition-all disabled:opacity-50"
+                  onClick={handleChatWithSeller}
+                  disabled={isStartingChat}
+                >
                   <MessageCircle className="h-5 w-5 mr-2 text-indigo-400" />
-                  Chat with Seller
+                  {isStartingChat ? 'Opening Chat...' : 'Chat with Seller'}
                 </button>
               </div>
             </div>
@@ -262,8 +326,14 @@ const TicketDetails = () => {
             </div>
 
             {/* Seller Info */}
-            <div className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 backdrop-blur-xl">
-              <h3 className="text-lg font-bold text-slate-100 mb-6 font-display">Seller Information</h3>
+            <div 
+              className="bg-slate-900/50 border border-slate-800 rounded-3xl p-8 backdrop-blur-xl cursor-pointer hover:border-indigo-500/50 transition-colors"
+              onClick={openSellerModal}
+            >
+              <h3 className="text-lg font-bold text-slate-100 mb-6 font-display flex items-center justify-between">
+                Seller Information
+                <span className="text-xs text-indigo-400 font-normal">View Details &rarr;</span>
+              </h3>
               <div className="flex items-center space-x-4">
                 <div className="w-14 h-14 bg-indigo-500/10 border border-indigo-500/20 rounded-full flex items-center justify-center shadow-lg shadow-indigo-500/5">
                   <User className="h-7 w-7 text-indigo-400" />
@@ -280,6 +350,86 @@ const TicketDetails = () => {
           </div>
         </div>
       </div>
+
+      {/* Seller Details Modal */}
+      {isSellerModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col max-h-[85vh]">
+            <div className="p-6 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-slate-900/95 backdrop-blur z-10">
+              <h2 className="text-xl font-bold text-white font-display">Seller Profile</h2>
+              <button onClick={() => setIsSellerModalOpen(false)} className="text-slate-400 hover:text-white">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto custom-scrollbar flex-1">
+              <div className="flex items-center space-x-4 mb-8">
+                <div className="w-16 h-16 bg-indigo-500/10 border border-indigo-500/20 rounded-full flex items-center justify-center">
+                  <User className="h-8 w-8 text-indigo-400" />
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-slate-100">{ticket.sellerName}</p>
+                  <p className="text-sm text-slate-400">Member since {formatDate(ticket.seller?.createdAt)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 text-center">
+                  <p className="text-3xl font-bold text-white font-display">{ticket.seller?.totalSales || 0}</p>
+                  <p className="text-xs text-slate-400 uppercase tracking-wider mt-1 font-semibold">Total Sales</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700/50 text-center">
+                  <p className="text-3xl font-bold text-indigo-400 font-display flex items-center justify-center">
+                    {sellerStats?.avgRating ? sellerStats.avgRating.toFixed(1) : 'N/A'}
+                    <Star className="w-5 h-5 ml-1 fill-current" />
+                  </p>
+                  <p className="text-xs text-slate-400 uppercase tracking-wider mt-1 font-semibold">{sellerStats?.numReviews || 0} Reviews</p>
+                </div>
+              </div>
+
+              {/* Seller Contact — respects privacy */}
+              {ticket.seller?.phone && ticket.seller?.phoneVisibility === 'public' && (
+                <div className="bg-slate-800/30 rounded-2xl p-4 border border-slate-700/30 mb-8 flex items-center gap-3">
+                  <Phone className="w-5 h-5 text-indigo-400" />
+                  <div>
+                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Contact</p>
+                    <p className="text-sm text-slate-200 font-medium">{ticket.seller.phone}</p>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-lg font-bold text-white mb-4">Recent Reviews</h3>
+                {isLoadingReviews ? (
+                  <div className="animate-pulse space-y-4">
+                    <div className="h-20 bg-slate-800 rounded-xl"></div>
+                    <div className="h-20 bg-slate-800 rounded-xl"></div>
+                  </div>
+                ) : sellerReviews.length > 0 ? (
+                  <div className="space-y-4">
+                    {sellerReviews.map(review => (
+                      <div key={review._id} className="bg-slate-800/30 p-4 rounded-xl border border-slate-700/30">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium text-slate-200">{review.buyerId?.name || 'User'}</span>
+                          <div className="flex gap-1 text-amber-400">
+                            {[...Array(review.rating)].map((_, i) => (
+                              <Star key={i} className="w-3.5 h-3.5 fill-current" />
+                            ))}
+                          </div>
+                        </div>
+                        {review.comment && <p className="text-sm text-slate-400">{review.comment}</p>}
+                        <p className="text-xs text-slate-500 mt-2">{formatDate(review.createdAt)}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500 text-center py-6">No reviews available for this seller yet.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

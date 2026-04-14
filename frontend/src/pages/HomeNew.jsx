@@ -7,10 +7,12 @@ import {
 } from 'lucide-react';
 import { ticketsAPI } from '../utils/api';
 import TicketCard from '../components/TicketCard';
+import useSocketStore from '../context/socketStore';
 
 const Home = () => {
   const [featuredTickets, setFeaturedTickets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { socket } = useSocketStore();
   const heroRef = useRef(null);
   
   // Canvas refs
@@ -47,6 +49,16 @@ const Home = () => {
       window.removeEventListener('scroll', handleScroll);
     };
   }, []);
+
+  useEffect(() => {
+    if (socket) {
+      const handleNewListing = () => {
+        fetchFeaturedTickets();
+      };
+      socket.on('new_listing', handleNewListing);
+      return () => socket.off('new_listing', handleNewListing);
+    }
+  }, [socket]);
   
   useEffect(() => {
     // Hero entrance animations

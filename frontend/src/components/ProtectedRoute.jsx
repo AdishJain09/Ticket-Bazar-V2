@@ -3,10 +3,10 @@ import useAuthStore from '../context/authStore';
 import LoadingScreen from './LoadingScreen';
 
 const ProtectedRoute = () => {
-  const { isAuthenticated, isLoading } = useAuthStore();
+  const { isAuthenticated, isInitialized } = useAuthStore();
   const location = useLocation();
 
-  if (isLoading) {
+  if (!isInitialized) {
     return <LoadingScreen />;
   }
 

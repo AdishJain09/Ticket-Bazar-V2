@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -13,6 +15,7 @@ dotenv.config();
 import { connectDB } from './config/database.js';
 import { configureCloudinary } from './config/cloudinary.js';
 import { seedDatabase } from './seed.js';
+import { startCronJobs } from './utils/cronJobs.js';
 
 // Middleware
 import { errorHandler, notFound } from './middleware/errorHandler.js';
@@ -25,6 +28,7 @@ import {
   chatRoutes,
   adminRoutes,
   notificationRoutes,
+  reviewRoutes,
 } from './routes/index.js';
 
 // Socket handlers
@@ -73,10 +77,27 @@ connectDB().then(async () => {
 configureCloudinary();
 
 // Middleware
+// Security headers
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false,
+}));
+
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
 }));
+
+// Global rate limiter: 200 requests per 15 minutes per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  message: { success: false, message: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(globalLimiter);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -92,13 +113,23 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Auth-specific rate limiters (stricter)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { success: false, message: 'Too many login attempts, please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // API Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/tickets', ticketRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // Root route
 app.get('/', (req, res) => {
@@ -118,6 +149,9 @@ app.use(errorHandler);
 
 // Initialize Socket.io handlers
 initializeSocket(io);
+
+// Start Cron Jobs
+startCronJobs();
 
 // Start server
 const PORT = process.env.PORT || 5000;

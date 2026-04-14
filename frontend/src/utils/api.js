@@ -31,11 +31,16 @@ api.interceptors.response.use(
     
     // Handle specific error codes
     if (error.response?.status === 401) {
-      // Token expired or invalid
+      // Token expired or invalid - don't redirect hard, let the store/route guard handle it
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
-      toast.error('Session expired. Please login again.');
+      
+      const currentPath = window.location.pathname;
+      if (!currentPath.includes('/login') && !currentPath.includes('/signup')) {
+        // Only show toast if we aren't already trying to login/signup
+        // The store's fetchUser will also catch this and update the state
+        toast.error('Session expired. Please login again.');
+      }
     } else if (error.response?.status === 403) {
       toast.error('You do not have permission to perform this action');
     } else if (error.response?.status === 404) {
@@ -60,6 +65,10 @@ export const authAPI = {
   updateProfile: (data) => api.put('/auth/me', data),
   updatePassword: (data) => api.put('/auth/password', data),
   becomeSeller: () => api.post('/auth/become-seller'),
+  forgotPassword: (data) => api.post('/auth/forgot-password', data),
+  resetPassword: (token, data) => api.put(`/auth/reset-password/${token}`, data),
+  verifyEmail: (token) => api.post(`/auth/verify-email/${token}`),
+  resendVerification: (data) => api.post('/auth/resend-verification', data),
 };
 
 // Tickets API
@@ -114,7 +123,7 @@ export const ordersAPI = {
 // Chat API
 export const chatAPI = {
   getConversations: () => api.get('/chat/conversations'),
-  getConversation: (id) => api.get(`/chat/conversations/${id}`),
+  getMessages: (id, page = 1) => api.get(`/chat/conversations/${id}/messages`, { params: { page } }),
   createConversation: (data) => api.post('/chat/conversations', data),
   sendMessage: (id, data) => {
     const formData = new FormData();
@@ -154,6 +163,12 @@ export const notificationsAPI = {
   markAsRead: (id) => api.put(`/notifications/${id}/read`),
   markAllAsRead: () => api.put('/notifications/read-all'),
   delete: (id) => api.delete(`/notifications/${id}`),
+};
+
+// Reviews API
+export const reviewsAPI = {
+  create: (data) => api.post('/reviews', data),
+  getSellerReviews: (sellerId) => api.get(`/reviews/seller/${sellerId}`),
 };
 
 export default api;
